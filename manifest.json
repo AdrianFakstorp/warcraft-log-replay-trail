@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Warcraft Logs Movement Trails",
+  "version": "0.1",
+  "description": "Visualize player movement trails in Warcraft Logs replays",
+  "permissions": ["activeTab", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.warcraftlogs.com/reports/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}
