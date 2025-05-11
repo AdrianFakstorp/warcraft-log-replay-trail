@@ -18,11 +18,5 @@
       "js": ["content.js"],
       "css": ["styles.css"]
     }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["src/*"],
-      "matches": ["*://*.warcraftlogs.com/*"]
-    }
   ]
 }
