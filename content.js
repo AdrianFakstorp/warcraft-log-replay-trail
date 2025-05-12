@@ -2,12 +2,7 @@ console.log('Warcraft Movement Trails extension loaded');
 
 // Global variables
 let playerData = {};
-let selectedPlayerId = null;
 let reportData = null; // Store the full report data
-let selectedPlayerName = null; // Store the name of the currently selected player
-let positionHistory = []; // Array to store previous positions
-const maxTrailLength = 20; // How many previous positions to show in the trail
-let originalDrawActorAndInstance = null; // Store the original draw function
 let trailEnabled = true; // Flag to enable/disable trail drawing
 
 // Check if we're on a replay page
@@ -286,168 +281,286 @@ function createControlPanel(players) {
   const controlPanel = document.createElement('div');
   controlPanel.id = 'wcl-trail-controls';
   
-  // Style the control panel
-  controlPanel.style.position = 'fixed';
-  controlPanel.style.top = '120px';
-  controlPanel.style.right = '10px';
-  controlPanel.style.backgroundColor = 'rgba(30, 30, 30, 0.9)';
-  controlPanel.style.color = 'white';
-  controlPanel.style.padding = '10px';
-  controlPanel.style.borderRadius = '5px';
-  controlPanel.style.zIndex = '9999';
-  controlPanel.style.width = '200px';
-  controlPanel.style.fontFamily = 'Arial, sans-serif';
-  controlPanel.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+  // Sort players alphabetically
+  const sortedPlayers = players && players.length > 0 
+    ? [...players].sort((a, b) => a.name.localeCompare(b.name))
+    : [];
   
   controlPanel.innerHTML = `
-    <div style="font-weight: bold; margin-bottom: 10px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.3); padding-bottom: 5px;">
+    <div class="trail-control-header">
       Movement Trails
+      <button class="trail-minimize-button" title="Minimize">−</button>
     </div>
-    <div style="margin-bottom: 10px;">
-      <label for="player-select">Player:</label>
-      <select id="player-select" style="width: 100%; padding: 4px; margin-top: 3px;">
-        <option value="">-- Select Player --</option>
-      </select>
+    <div class="trail-control-content">
+      <div id="show-trail-container">
+        <input type="checkbox" id="show-trail" checked> 
+        <label for="show-trail">Show Trails</label>
+      </div>
+      <div class="trail-control-item">
+        <div id="player-checklist">
+          ${sortedPlayers.length > 0 
+            ? sortedPlayers.map(player => {
+                return `
+                  <div class="player-checkbox-item">
+                    <label>
+                      <input type="checkbox" class="player-checkbox" data-player-id="${player.id}" data-player-name="${player.name}"> 
+                      <span>${player.name}</span>
+                    </label>
+                  </div>
+                `;
+              }).join('')
+            : '<div>No players found for this fight</div>'
+          }
+        </div>
+      </div>
+      <div class="trail-control-item">
+        <button id="clear-all-trails" disabled>
+          Clear All Trails
+        </button>
+      </div>
+      <div class="info-text">
+        Check players to show their movement trails throughout the replay.
+        <br><br>
+        Brighter spots indicate areas where players stood still for longer periods.
+      </div>
+      <div id="status-message">Waiting for replay to load...</div>
     </div>
-    <div style="margin-bottom: 10px;">
-      <button id="view-player" style="width: 100%; padding: 5px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;" disabled>
-        Track Player
-      </button>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <button id="clear-trail" style="width: 100%; padding: 5px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer;" disabled>
-        Clear Trail
-      </button>
-    </div>
-    <div style="font-size: 11px; color: #aaa; margin-top: 10px; margin-bottom: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 5px;">
-      The trail shows the complete movement path of the selected player throughout the replay.
-      <br><br>
-      Brighter spots indicate areas where the player stood still for longer periods.
-    </div>
-    <div id="status-message" style="font-size: 12px; color: #999; margin-top: 10px;"></div>
   `;
   
   document.body.appendChild(controlPanel);
   
-  // Populate player select dropdown if we found players
-  if (players && players.length > 0) {
-    // Sort players alphabetically
-    players.sort((a, b) => a.name.localeCompare(b.name));
-    
-    const playerSelect = document.getElementById('player-select');
-    
-    // Add player options
-    players.forEach((player) => {
-      const option = document.createElement('option');
-      option.value = player.id;
-      
-      // Format the display name with class if available
-      let displayName = player.name;
-      if (player.type) {
-        displayName += ` (${player.type})`;
-      }
-      
-      option.textContent = displayName;
-      playerSelect.appendChild(option);
-      
-      // Store player data
+  // Store player data
+  if (sortedPlayers.length > 0) {
+    sortedPlayers.forEach((player) => {
       playerData[player.id] = player;
     });
     
-    updateStatus(`Found ${players.length} players`);
-    
-    // Add change event listener to the dropdown
-    playerSelect.addEventListener('change', handlePlayerSelection);
+    updateStatus(`Found ${sortedPlayers.length} players`);
   } else {
     updateStatus('No players found for this fight');
   }
   
-  // Add event listeners
-  // And when a player is tracked, enable the clear button:
-  document.getElementById('view-player').addEventListener('click', function() {
-  const selectElement = document.getElementById('player-select');
-  const selectedPlayerId = selectElement.value;
+  // Add event listeners to each checkbox
+  const checkboxes = document.querySelectorAll('.player-checkbox');
+  checkboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', handlePlayerCheckboxToggle);
+  });
   
-  if (selectedPlayerId) {
-    const player = playerData[selectedPlayerId];
-    selectedPlayerName = player.name;
-    updateStatus(`Tracking ${player.name}...`);
+  // Add event listener for the clear all button
+  document.getElementById('clear-all-trails').addEventListener('click', function() {
+    console.log('Clearing all trails');
+    
+    // Send message to clear all trails
+    sendMessageToPage({
+      type: 'wcl-trail-clear-all'
+    });
+    
+    // Uncheck all checkboxes
+    document.querySelectorAll('.player-checkbox').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    
+    // Disable clear all button
+    this.disabled = true;
+    
+    updateStatus('Cleared all trails');
+  });
+  
+  // Show/hide trail toggle handler
+  document.getElementById('show-trail').addEventListener('change', function(e) {
+    trailEnabled = e.target.checked;
+    console.log(`Toggling trail visibility to: ${trailEnabled}`);
     
     // Send message to the injected script
     sendMessageToPage({
-      type: 'wcl-trail-setup',
-      playerName: player.name
+      type: 'wcl-trail-visibility',
+      visible: trailEnabled
     });
     
-    // Enable the clear button
-    document.getElementById('clear-trail').disabled = false;
-  }
+    updateStatus(`Trails ${trailEnabled ? 'shown' : 'hidden'}`);
   });
   
-// Update the clear trail button handler:
-document.getElementById('clear-trail').addEventListener('click', function() {
-  if (selectedPlayerName) {
-    console.log('Sending clear trail request');
-    // Send message to clear the trail
-    sendMessageToPage({
-      type: 'wcl-trail-clear'
-    });
+  // Minimize button functionality
+  const minimizeButton = controlPanel.querySelector('.trail-minimize-button');
+  minimizeButton.addEventListener('click', function() {
+    const isCurrentlyCollapsed = controlPanel.classList.contains('collapsed');
     
-    updateStatus(`Cleared trail for ${selectedPlayerName}`);
-  } else {
-    console.log('No player selected for clearing trail');
-  }
-});
-  
-  // Add toggle for trail visibility
-  const trailToggle = document.createElement('div');
-  trailToggle.style.marginBottom = '10px';
-  trailToggle.innerHTML = `
-    <label style="display: flex; align-items: center;">
-      <input type="checkbox" id="show-trail" checked style="margin-right: 5px;"> 
-      Show Trail
-    </label>
-  `;
-  controlPanel.insertBefore(trailToggle, document.getElementById('status-message').previousElementSibling);
-  
-  // Update the show/hide trail toggle handler:
-  document.getElementById('show-trail').addEventListener('change', function(e) {
-  trailEnabled = e.target.checked;
-  console.log(`Toggling trail visibility to: ${trailEnabled}`);
-  
-  // Send message to the injected script
-  sendMessageToPage({
-    type: 'wcl-trail-visibility',
-    visible: trailEnabled
+    if (isCurrentlyCollapsed) {
+      // If it's collapsed, expand it
+      controlPanel.classList.remove('collapsed');
+      this.textContent = '−';
+      this.title = 'Minimize';
+    } else {
+      // If it's expanded, collapse it
+      controlPanel.classList.add('collapsed');
+      this.textContent = '+';
+      this.title = 'Expand';
+    }
   });
   
-  updateStatus(`Trail ${trailEnabled ? 'shown' : 'hidden'}`);
+  // Make the panel draggable
+  makeDraggable(controlPanel);
+}
+
+// Make an element draggable by its header
+function makeDraggable(element) {
+  const header = element.querySelector('.trail-control-header');
+  let isDragging = false;
+  let offsetX, offsetY;
+  
+  header.addEventListener('mousedown', function(e) {
+    // Only start dragging if we didn't click the minimize button
+    if (e.target.classList.contains('trail-minimize-button')) {
+      return;
+    }
+    
+    isDragging = true;
+    offsetX = e.clientX - element.getBoundingClientRect().left;
+    offsetY = e.clientY - element.getBoundingClientRect().top;
+    
+    // Add noselect class to prevent text selection during drag
+    element.classList.add('noselect');
+  });
+  
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    
+    // Update position
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - element.offsetWidth;
+    const maxY = window.innerHeight - element.offsetHeight;
+    
+    const boundedX = Math.max(0, Math.min(x, maxX));
+    const boundedY = Math.max(0, Math.min(y, maxY));
+    
+    element.style.left = boundedX + 'px';
+    element.style.top = boundedY + 'px';
+    element.style.right = 'auto'; // Override the default right positioning
+  });
+  
+  document.addEventListener('mouseup', function() {
+    if (isDragging) {
+      isDragging = false;
+      element.classList.remove('noselect');
+    }
   });
 }
 
-// Update the handlePlayerSelection function to enable/disable the clear button properly:
-function handlePlayerSelection(e) {
-  const selectElement = e.target;
-  const selectedId = selectElement.value;
-  const viewButton = document.getElementById('view-player');
-  const clearButton = document.getElementById('clear-trail');
+// Make an element draggable by its header
+function makeDraggable(element) {
+  const header = element.querySelector('.trail-control-header');
+  let isDragging = false;
+  let offsetX, offsetY;
   
-  // If no player selected, disable the buttons
-  if (!selectedId) {
-    viewButton.disabled = true;
-    clearButton.disabled = true;
-    selectedPlayerName = null;
-    return;
+  header.addEventListener('mousedown', function(e) {
+    isDragging = true;
+    offsetX = e.clientX - element.getBoundingClientRect().left;
+    offsetY = e.clientY - element.getBoundingClientRect().top;
+    
+    // Add noselect class to prevent text selection during drag
+    element.classList.add('noselect');
+  });
+  
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    
+    // Update position
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - element.offsetWidth;
+    const maxY = window.innerHeight - element.offsetHeight;
+    
+    const boundedX = Math.max(0, Math.min(x, maxX));
+    const boundedY = Math.max(0, Math.min(y, maxY));
+    
+    element.style.left = boundedX + 'px';
+    element.style.top = boundedY + 'px';
+    element.style.right = 'auto'; // Override the default right positioning
+  });
+  
+  document.addEventListener('mouseup', function() {
+    if (isDragging) {
+      isDragging = false;
+      element.classList.remove('noselect');
+    }
+  });
+}
+
+
+// Handle player checkbox toggle
+function handlePlayerCheckboxToggle(e) {
+  const checkbox = e.target;
+  const playerId = checkbox.getAttribute('data-player-id');
+  const playerName = checkbox.getAttribute('data-player-name');
+  const isChecked = checkbox.checked;
+  const clearAllButton = document.getElementById('clear-all-trails');
+  
+  if (isChecked) {
+    console.log(`Adding trail for ${playerName}`);
+    
+    // Send message to the injected script to setup trail for this player
+    sendMessageToPage({
+      type: 'wcl-trail-setup',
+      playerName: playerName,
+      playerColor: getPlayerColor(playerId) // We'll add a function to get a unique color for each player
+    });
+    
+    // Enable the clear all button if at least one player is checked
+    clearAllButton.disabled = false;
+    
+    updateStatus(`Added trail for ${playerName}`);
+  } else {
+    console.log(`Removing trail for ${playerName}`);
+    
+    // Send message to remove trail for this player
+    sendMessageToPage({
+      type: 'wcl-trail-remove',
+      playerName: playerName
+    });
+    
+    // Check if any players are still checked
+    const anyChecked = [...document.querySelectorAll('.player-checkbox')].some(cb => cb.checked);
+    clearAllButton.disabled = !anyChecked;
+    
+    updateStatus(`Removed trail for ${playerName}`);
   }
+}
+
+// Function to get a unique color for each player
+function getPlayerColor(playerId) {
+  // List of distinct colors for different players
+  const colors = [
+    '125, 32, 39',    // Deep red
+    '26, 118, 210',   // Blue
+    '76, 175, 80',    // Green
+    '156, 39, 176',   // Purple
+    '255, 152, 0',    // Orange
+    '3, 169, 244',    // Light blue
+    '233, 30, 99',    // Pink
+    '255, 87, 34',    // Deep orange
+    '0, 150, 136',    // Teal
+    '63, 81, 181',    // Indigo
+    '33, 150, 243',   // Blue
+    '139, 195, 74',   // Light green
+    '158, 158, 158',  // Grey
+    '96, 125, 139',   // Blue grey
+    '121, 85, 72',    // Brown
+    '255, 193, 7',    // Amber
+    '0, 188, 212',    // Cyan
+    '103, 58, 183',   // Deep purple
+    '244, 67, 54',    // Red
+    '255, 235, 59'    // Yellow
+  ];
   
-  // Enable the view button
-  viewButton.disabled = false;
+  // Generate a consistent index for this player
+  const index = parseInt(playerId.replace(/\D/g, '')) % colors.length;
   
-  const player = playerData[selectedId];
-  console.log(`Selected player: ${player.name}`);
-  
-  // Update status
-  updateStatus(`Selected ${player.name}`);
+  return colors[index];
 }
 
 // Set up a mutation observer to monitor for canvas and game UI elements

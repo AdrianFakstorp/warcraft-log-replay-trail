@@ -3,21 +3,27 @@
 <head>
   <style>
     body {
-      width: 200px;
-      padding: 10px;
+      width: 240px;
+      padding: 12px;
       font-family: Arial, sans-serif;
     }
     h1 {
-      font-size: 14px;
-      margin-bottom: 10px;
+      font-size: 16px;
+      margin-bottom: 12px;
+      text-align: center;
     }
     p {
-      font-size: 12px;
+      font-size: 13px;
+      margin: 8px 0;
     }
     .instructions {
       margin-top: 15px;
-      font-size: 11px;
+      font-size: 12px;
       color: #666;
+      line-height: 1.4;
+    }
+    .feature {
+      margin-bottom: 6px;
     }
   </style>
 </head>
@@ -25,10 +31,10 @@
   <h1>Warcraft Logs Movement Trails</h1>
   <p>Navigate to a Warcraft Logs replay to use this extension.</p>
   <div class="instructions">
-    <p>1. Open a Warcraft Logs replay</p>
-    <p>2. Select a player from the dropdown</p>
-    <p>3. Click "Collect Movement Data"</p>
-    <p>4. Hover over trail markers to see timestamps</p>
+    <div class="feature">1. Open a Warcraft Logs replay</div>
+    <div class="feature">2. Check one or more players to view their movement trails</div>
+    <div class="feature">3. Each player's trail appears in a different color</div>
+    <div class="feature">4. Uncheck players to hide their trails</div>
   </div>
   <script src="popup.js"></script>
 </body>
