@@ -1,216 +1,4 @@
-// Function to inject code directly into the page's context
-function injectScript(code) {
-  console.log('Injecting script into page context');
-  
-  // Method 1: Using a script file and the web_accessible_resources feature
-  // Create a blob URL for the script
-  const blob = new Blob([code], { type: 'text/javascript' });
-  const scriptURL = URL.createObjectURL(blob);
-  
-  // Create a script element that loads from the URL
-  const script = document.createElement('script');
-  script.src = scriptURL;
-  document.head.appendChild(script);
-  
-  // Clean up after the script loads
-  script.onload = () => {
-    URL.revokeObjectURL(scriptURL);
-    script.remove();
-    console.log('Script injection complete');
-  };
-  
-  script.onerror = (error) => {
-    console.error('Script injection failed:', error);
-    
-    // Fallback to method 2: Using the Chrome extension messaging API
-    console.log('Trying fallback injection method...');
-    
-    // Create a script to listen for messages
-    const listenerScript = document.createElement('script');
-    listenerScript.textContent = `
-      window.addEventListener('message', function(event) {
-        if (event.data && event.data.type === 'wcl-trail-injection') {
-          try {
-            eval(event.data.code);
-            console.log('Code evaluation successful');
-          } catch (e) {
-            console.error('Code evaluation failed:', e);
-          }
-        }
-      });
-      console.log('Message listener installed');
-    `;
-    document.head.appendChild(listenerScript);
-    
-    // Send the code via postMessage
-    window.postMessage({
-      type: 'wcl-trail-injection',
-      code: code
-    }, '*');
-    
-    console.log('Sent code via postMessage');
-    listenerScript.remove();
-  };
-}
-
-// Generate the script to be injected based on the selected player
-function generateTrailScript(playerName) {
-  return `
-    // Array to store previous positions
-    const positionHistory = [];
-    const maxTrailLength = 20; // How many previous positions to show in the trail
-    
-    // Check if we've already modified the function
-    if (!window.originalDrawActorAndInstance) {
-      console.log('Setting up trail for ${playerName}');
-      
-      // Store the original function
-      window.originalDrawActorAndInstance = window.drawActorAndInstance;
-      
-      // Create a wrapper function that adds a trail
-      window.drawActorAndInstance = function(e, t, i, r, a) {
-        // First call the original function to draw everything normally
-        const result = window.originalDrawActorAndInstance.apply(this, arguments);
-        
-        // Check if this is the actor we're interested in
-        if (t && t.name === '${playerName}' && i.drawX !== undefined && i.drawY !== undefined) {
-          const currentPos = { x: i.drawX, y: i.drawY, time: Date.now() };
-          
-          // Check if this is a new position (avoid duplicates from multiple redraws)
-          const lastPos = positionHistory.length > 0 ? positionHistory[positionHistory.length - 1] : null;
-          if (!lastPos || 
-              (Math.abs(currentPos.x - lastPos.x) > 1 || Math.abs(currentPos.y - lastPos.y) > 1) && 
-              (currentPos.time - lastPos.time > 100)) {
-            
-            // Add current position to history
-            positionHistory.push(currentPos);
-            
-            // Keep history within max length
-            if (positionHistory.length > maxTrailLength) {
-              positionHistory.shift();
-            }
-            
-            console.log('Updated ${playerName} trail, now has', positionHistory.length, 'points');
-          }
-          
-          // Get canvas context (e is already the context)
-          const ctx = e;
-          
-          // Save current context state
-          ctx.save();
-          
-          // Draw circles for all positions in history
-          positionHistory.forEach((pos, index) => {
-            // Calculate opacity based on position in history (newer = more opaque)
-            const opacity = 0.1 + (index / positionHistory.length) * 0.5;
-            // Calculate size based on position in history (newer = bigger)
-            const size = 15 + (index / positionHistory.length) * 15;
-            
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2, false);
-            ctx.fillStyle = \`rgba(255, 0, 0, \${opacity})\`;
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = \`rgba(255, 0, 0, \${opacity + 0.2})\`;
-            ctx.stroke();
-          });
-          
-          // Restore context state
-          ctx.restore();
-        }
-        
-        return result;
-      };
-      
-      // Add a function to clear the trail
-      window.clearPlayerTrail = function() {
-        positionHistory.length = 0;
-        console.log('Cleared ${playerName} position trail');
-      };
-      
-      console.log('Successfully intercepted drawActorAndInstance function');
-      console.log('Now creating a trail for actor with name "${playerName}"');
-      console.log('To clear the trail, run: window.clearPlayerTrail()');
-      
-      // Send message back to extension
-      window.postMessage({
-        type: 'wcl-trail-status',
-        message: 'Now tracking ${playerName}',
-        playerName: '${playerName}',
-        success: true
-      }, '*');
-    } else {
-      // Already set up, just change the player
-      console.log('Changing tracked player to ${playerName}');
-      
-      // Clear existing trail
-      positionHistory.length = 0;
-      
-      // Update tracking function with new player name
-      window.drawActorAndInstance = function(e, t, i, r, a) {
-        // First call the original function to draw everything normally
-        const result = window.originalDrawActorAndInstance.apply(this, arguments);
-        
-        // Check if this is the actor we're interested in
-        if (t && t.name === '${playerName}' && i.drawX !== undefined && i.drawY !== undefined) {
-          const currentPos = { x: i.drawX, y: i.drawY, time: Date.now() };
-          
-          // Check if this is a new position (avoid duplicates from multiple redraws)
-          const lastPos = positionHistory.length > 0 ? positionHistory[positionHistory.length - 1] : null;
-          if (!lastPos || 
-              (Math.abs(currentPos.x - lastPos.x) > 1 || Math.abs(currentPos.y - lastPos.y) > 1) && 
-              (currentPos.time - lastPos.time > 100)) {
-            
-            // Add current position to history
-            positionHistory.push(currentPos);
-            
-            // Keep history within max length
-            if (positionHistory.length > maxTrailLength) {
-              positionHistory.shift();
-            }
-            
-            console.log('Updated ${playerName} trail, now has', positionHistory.length, 'points');
-          }
-          
-          // Get canvas context (e is already the context)
-          const ctx = e;
-          
-          // Save current context state
-          ctx.save();
-          
-          // Draw circles for all positions in history
-          positionHistory.forEach((pos, index) => {
-            // Calculate opacity based on position in history (newer = more opaque)
-            const opacity = 0.1 + (index / positionHistory.length) * 0.5;
-            // Calculate size based on position in history (newer = bigger)
-            const size = 15 + (index / positionHistory.length) * 15;
-            
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2, false);
-            ctx.fillStyle = \`rgba(255, 0, 0, \${opacity})\`;
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = \`rgba(255, 0, 0, \${opacity + 0.2})\`;
-            ctx.stroke();
-          });
-          
-          // Restore context state
-          ctx.restore();
-        }
-        
-        return result;
-      };
-      
-      console.log('Now tracking ${playerName}');
-      window.postMessage({
-        type: 'wcl-trail-status',
-        message: 'Now tracking ${playerName}',
-        playerName: '${playerName}',
-        success: true
-      }, '*');
-    }
-  `;
-}console.log('Warcraft Movement Trails extension loaded');
+console.log('Warcraft Movement Trails extension loaded');
 
 // Global variables
 let playerData = {};
@@ -275,6 +63,33 @@ async function fetchReportData() {
   }
 }
 
+// Load external script as a web accessible resource
+function loadExternalScript() {
+  // Get the URL of the script from the extension
+  const scriptURL = chrome.runtime.getURL('trailScript.js');
+  
+  // Create script element
+  const script = document.createElement('script');
+  script.src = scriptURL;
+  script.onload = function() {
+    // Script has been loaded and executed
+    console.log('Trail script loaded successfully');
+    
+    // Clean up - remove script element from DOM (optional)
+    this.remove();
+  };
+  
+  // Add to document to load it
+  (document.head || document.documentElement).appendChild(script);
+  
+  console.log('Injected trail script from extension resources');
+}
+
+// Send a message to the injected script
+function sendMessageToPage(message) {
+  window.postMessage(message, '*');
+}
+
 // Main initialization function
 async function initialize() {
   console.log('Initializing on replay page');
@@ -295,6 +110,9 @@ async function initialize() {
   indicator.style.fontSize = '12px';
   document.body.appendChild(indicator);
   
+  // Load the external script
+  loadExternalScript();
+  
   // Try to get report data or generate mock data
   updateStatus('Getting player data...');
   reportData = await fetchReportData();
@@ -306,9 +124,9 @@ async function initialize() {
     generateMockPlayers();
   }
   
-  // Install message listener for the page context
+  // Install message listener for messages from the page context
   window.addEventListener('message', function(event) {
-    // We only accept messages from ourselves
+    // We only accept messages from ourselves or the same origin
     if (event.source !== window) return;
     
     if (event.data.type === 'wcl-trail-status') {
@@ -495,6 +313,16 @@ function createControlPanel(players) {
         Track Player
       </button>
     </div>
+    <div style="margin-bottom: 10px;">
+      <button id="clear-trail" style="width: 100%; padding: 5px; background-color: #f44336; color: white; border: none; border-radius: 3px; cursor: pointer;" disabled>
+        Clear Trail
+      </button>
+    </div>
+    <div style="font-size: 11px; color: #aaa; margin-top: 10px; margin-bottom: 10px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 5px;">
+      The trail shows the complete movement path of the selected player throughout the replay.
+      <br><br>
+      Brighter spots indicate areas where the player stood still for longer periods.
+    </div>
     <div id="status-message" style="font-size: 12px; color: #999; margin-top: 10px;"></div>
   `;
   
@@ -543,9 +371,26 @@ function createControlPanel(players) {
       selectedPlayerName = player.name;
       updateStatus(`Tracking ${player.name}...`);
       
-      // Inject script to set up trail for selected player
-      const script = generateTrailScript(player.name);
-      injectScript(script);
+      // Send message to the injected script
+      sendMessageToPage({
+        type: 'wcl-trail-setup',
+        playerName: player.name
+      });
+      
+      // Enable the clear button
+      document.getElementById('clear-trail').disabled = false;
+    }
+  });
+  
+  // Add event listener for the clear trail button
+  document.getElementById('clear-trail').addEventListener('click', function() {
+    if (selectedPlayerName) {
+      // Send message to clear the trail
+      sendMessageToPage({
+        type: 'wcl-trail-clear'
+      });
+      
+      updateStatus(`Cleared trail for ${selectedPlayerName}`);
     }
   });
   
@@ -558,25 +403,17 @@ function createControlPanel(players) {
       Show Trail
     </label>
   `;
-  controlPanel.insertBefore(trailToggle, document.getElementById('status-message'));
+  controlPanel.insertBefore(trailToggle, document.getElementById('status-message').previousElementSibling);
   
   document.getElementById('show-trail').addEventListener('change', function(e) {
     trailEnabled = e.target.checked;
     updateStatus(`Trail ${trailEnabled ? 'enabled' : 'disabled'}`);
     
-    // Inject script to update trail visibility
-    const script = `
-      console.log('Setting trail visibility to ${trailEnabled}');
-      window.trailEnabled = ${trailEnabled};
-      
-      if (!${trailEnabled}) {
-        // Clear the trail when disabled
-        if (window.clearPlayerTrail) {
-          window.clearPlayerTrail();
-        }
-      }
-    `;
-    injectScript(script);
+    // Send message to the injected script
+    sendMessageToPage({
+      type: 'wcl-trail-visibility',
+      visible: trailEnabled
+    });
   });
 }
 
@@ -616,26 +453,11 @@ function setupCanvasObserver() {
         if (canvasElements.length > 0) {
           console.log(`Canvas elements found (${canvasElements.length})`);
           
-          // Inject a script to check for the draw function
-          const checkScript = `
-            if (typeof window.drawActorAndInstance === 'function') {
-              console.log('drawActorAndInstance function available in page context');
-              window.postMessage({
-                type: 'wcl-trail-status',
-                message: 'Drawing function found',
-                functionName: 'drawActorAndInstance',
-                available: true
-              }, '*');
-            } else {
-              console.log('drawActorAndInstance function NOT available in page context');
-              window.postMessage({
-                type: 'wcl-trail-status',
-                message: 'Drawing function not found',
-                available: false
-              }, '*');
-            }
-          `;
-          injectScript(checkScript);
+          // Send a message to check for the draw function
+          sendMessageToPage({
+            type: 'wcl-trail-check',
+            check: 'drawActorAndInstance'
+          });
           
           observer.disconnect();
           break;
