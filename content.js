@@ -1,12 +1,226 @@
-console.log('Warcraft Movement Trails extension loaded');
+// Function to inject code directly into the page's context
+function injectScript(code) {
+  console.log('Injecting script into page context');
+  
+  // Method 1: Using a script file and the web_accessible_resources feature
+  // Create a blob URL for the script
+  const blob = new Blob([code], { type: 'text/javascript' });
+  const scriptURL = URL.createObjectURL(blob);
+  
+  // Create a script element that loads from the URL
+  const script = document.createElement('script');
+  script.src = scriptURL;
+  document.head.appendChild(script);
+  
+  // Clean up after the script loads
+  script.onload = () => {
+    URL.revokeObjectURL(scriptURL);
+    script.remove();
+    console.log('Script injection complete');
+  };
+  
+  script.onerror = (error) => {
+    console.error('Script injection failed:', error);
+    
+    // Fallback to method 2: Using the Chrome extension messaging API
+    console.log('Trying fallback injection method...');
+    
+    // Create a script to listen for messages
+    const listenerScript = document.createElement('script');
+    listenerScript.textContent = `
+      window.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'wcl-trail-injection') {
+          try {
+            eval(event.data.code);
+            console.log('Code evaluation successful');
+          } catch (e) {
+            console.error('Code evaluation failed:', e);
+          }
+        }
+      });
+      console.log('Message listener installed');
+    `;
+    document.head.appendChild(listenerScript);
+    
+    // Send the code via postMessage
+    window.postMessage({
+      type: 'wcl-trail-injection',
+      code: code
+    }, '*');
+    
+    console.log('Sent code via postMessage');
+    listenerScript.remove();
+  };
+}
+
+// Generate the script to be injected based on the selected player
+function generateTrailScript(playerName) {
+  return `
+    // Array to store previous positions
+    const positionHistory = [];
+    const maxTrailLength = 20; // How many previous positions to show in the trail
+    
+    // Check if we've already modified the function
+    if (!window.originalDrawActorAndInstance) {
+      console.log('Setting up trail for ${playerName}');
+      
+      // Store the original function
+      window.originalDrawActorAndInstance = window.drawActorAndInstance;
+      
+      // Create a wrapper function that adds a trail
+      window.drawActorAndInstance = function(e, t, i, r, a) {
+        // First call the original function to draw everything normally
+        const result = window.originalDrawActorAndInstance.apply(this, arguments);
+        
+        // Check if this is the actor we're interested in
+        if (t && t.name === '${playerName}' && i.drawX !== undefined && i.drawY !== undefined) {
+          const currentPos = { x: i.drawX, y: i.drawY, time: Date.now() };
+          
+          // Check if this is a new position (avoid duplicates from multiple redraws)
+          const lastPos = positionHistory.length > 0 ? positionHistory[positionHistory.length - 1] : null;
+          if (!lastPos || 
+              (Math.abs(currentPos.x - lastPos.x) > 1 || Math.abs(currentPos.y - lastPos.y) > 1) && 
+              (currentPos.time - lastPos.time > 100)) {
+            
+            // Add current position to history
+            positionHistory.push(currentPos);
+            
+            // Keep history within max length
+            if (positionHistory.length > maxTrailLength) {
+              positionHistory.shift();
+            }
+            
+            console.log('Updated ${playerName} trail, now has', positionHistory.length, 'points');
+          }
+          
+          // Get canvas context (e is already the context)
+          const ctx = e;
+          
+          // Save current context state
+          ctx.save();
+          
+          // Draw circles for all positions in history
+          positionHistory.forEach((pos, index) => {
+            // Calculate opacity based on position in history (newer = more opaque)
+            const opacity = 0.1 + (index / positionHistory.length) * 0.5;
+            // Calculate size based on position in history (newer = bigger)
+            const size = 15 + (index / positionHistory.length) * 15;
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2, false);
+            ctx.fillStyle = \`rgba(255, 0, 0, \${opacity})\`;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = \`rgba(255, 0, 0, \${opacity + 0.2})\`;
+            ctx.stroke();
+          });
+          
+          // Restore context state
+          ctx.restore();
+        }
+        
+        return result;
+      };
+      
+      // Add a function to clear the trail
+      window.clearPlayerTrail = function() {
+        positionHistory.length = 0;
+        console.log('Cleared ${playerName} position trail');
+      };
+      
+      console.log('Successfully intercepted drawActorAndInstance function');
+      console.log('Now creating a trail for actor with name "${playerName}"');
+      console.log('To clear the trail, run: window.clearPlayerTrail()');
+      
+      // Send message back to extension
+      window.postMessage({
+        type: 'wcl-trail-status',
+        message: 'Now tracking ${playerName}',
+        playerName: '${playerName}',
+        success: true
+      }, '*');
+    } else {
+      // Already set up, just change the player
+      console.log('Changing tracked player to ${playerName}');
+      
+      // Clear existing trail
+      positionHistory.length = 0;
+      
+      // Update tracking function with new player name
+      window.drawActorAndInstance = function(e, t, i, r, a) {
+        // First call the original function to draw everything normally
+        const result = window.originalDrawActorAndInstance.apply(this, arguments);
+        
+        // Check if this is the actor we're interested in
+        if (t && t.name === '${playerName}' && i.drawX !== undefined && i.drawY !== undefined) {
+          const currentPos = { x: i.drawX, y: i.drawY, time: Date.now() };
+          
+          // Check if this is a new position (avoid duplicates from multiple redraws)
+          const lastPos = positionHistory.length > 0 ? positionHistory[positionHistory.length - 1] : null;
+          if (!lastPos || 
+              (Math.abs(currentPos.x - lastPos.x) > 1 || Math.abs(currentPos.y - lastPos.y) > 1) && 
+              (currentPos.time - lastPos.time > 100)) {
+            
+            // Add current position to history
+            positionHistory.push(currentPos);
+            
+            // Keep history within max length
+            if (positionHistory.length > maxTrailLength) {
+              positionHistory.shift();
+            }
+            
+            console.log('Updated ${playerName} trail, now has', positionHistory.length, 'points');
+          }
+          
+          // Get canvas context (e is already the context)
+          const ctx = e;
+          
+          // Save current context state
+          ctx.save();
+          
+          // Draw circles for all positions in history
+          positionHistory.forEach((pos, index) => {
+            // Calculate opacity based on position in history (newer = more opaque)
+            const opacity = 0.1 + (index / positionHistory.length) * 0.5;
+            // Calculate size based on position in history (newer = bigger)
+            const size = 15 + (index / positionHistory.length) * 15;
+            
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2, false);
+            ctx.fillStyle = \`rgba(255, 0, 0, \${opacity})\`;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = \`rgba(255, 0, 0, \${opacity + 0.2})\`;
+            ctx.stroke();
+          });
+          
+          // Restore context state
+          ctx.restore();
+        }
+        
+        return result;
+      };
+      
+      console.log('Now tracking ${playerName}');
+      window.postMessage({
+        type: 'wcl-trail-status',
+        message: 'Now tracking ${playerName}',
+        playerName: '${playerName}',
+        success: true
+      }, '*');
+    }
+  `;
+}console.log('Warcraft Movement Trails extension loaded');
 
 // Global variables
 let playerData = {};
-let positionData = {};
-let isCollecting = false;
 let selectedPlayerId = null;
 let reportData = null; // Store the full report data
-let trackingInterval = null;
+let selectedPlayerName = null; // Store the name of the currently selected player
+let positionHistory = []; // Array to store previous positions
+const maxTrailLength = 20; // How many previous positions to show in the trail
+let originalDrawActorAndInstance = null; // Store the original draw function
+let trailEnabled = true; // Flag to enable/disable trail drawing
 
 // Check if we're on a replay page
 function isReplayPage() {
@@ -81,16 +295,30 @@ async function initialize() {
   indicator.style.fontSize = '12px';
   document.body.appendChild(indicator);
   
-  // Try to get report data
-  updateStatus('Fetching report data...');
+  // Try to get report data or generate mock data
+  updateStatus('Getting player data...');
   reportData = await fetchReportData();
   
   if (reportData) {
     findPlayersFromReportData();
   } else {
-    updateStatus('Error: Failed to fetch report data');
-    console.error('Failed to fetch report data and no fallback available');
+    // Generate mock data for testing
+    generateMockPlayers();
   }
+  
+  // Install message listener for the page context
+  window.addEventListener('message', function(event) {
+    // We only accept messages from ourselves
+    if (event.source !== window) return;
+    
+    if (event.data.type === 'wcl-trail-status') {
+      console.log('Received status from page script:', event.data.message);
+      updateStatus(event.data.message);
+    }
+  });
+  
+  // Canvas will be detected by the observer
+  updateStatus('Waiting for replay to load...');
 }
 
 // Find players from report data
@@ -98,29 +326,72 @@ function findPlayersFromReportData() {
   if (!reportData || !reportData.friendlies) {
     updateStatus('Error: No player data found in report');
     console.error('Report data is missing friendlies array:', reportData);
+    // Generate mock data as fallback
+    generateMockPlayers();
     return;
   }
   
   const { fightId } = getReportInfoFromUrl();
   if (!fightId) {
     updateStatus('Error: Could not determine fight ID from URL');
+    generateMockPlayers();
     return;
   }
   
   console.log(`Looking for players in fight ${fightId}`);
-  console.log('Report data structure:', Object.keys(reportData));
-  console.log('Number of friendlies:', reportData.friendlies.length);
   
   // Find players who participated in this fight
-  const playersInFight = reportData.friendlies.filter(player => 
-    player.fights && player.fights.includes(`.${fightId}.`)
-  );
+  console.log("Examining friendlies for fight participation:", reportData.friendlies.length);
   
-  console.log(`Found ${playersInFight.length} players in fight ${fightId}`);
-  console.log('First few players:', playersInFight.slice(0, 3));
+  // Check the structure of the fights data
+  if (reportData.friendlies.length > 0) {
+    console.log("Example fights data structure:", reportData.friendlies[0].fights);
+  }
+  
+  // Filter players who participated in this fight
+  const playersInFight = reportData.friendlies.filter(player => {
+    // Check if player has fights data
+    if (!player.fights) {
+      return false;
+    }
+    
+    // Different data formats might exist
+    if (Array.isArray(player.fights)) {
+      // Format 1: Array of fight objects
+      return player.fights.some(fight => 
+        (fight.id === parseInt(fightId)) || 
+        (fight.id === fightId) ||
+        (fight === parseInt(fightId)) ||
+        (fight === fightId)
+      );
+    } else if (typeof player.fights === 'string') {
+      // Format 2: String with comma-separated fight IDs (`.1.,.2.,.3.`)
+      return player.fights.includes(`.${fightId}.`);
+    } else if (typeof player.fights === 'object') {
+      // Format 3: Object with fight IDs as keys
+      return player.fights[fightId] !== undefined;
+    }
+    
+    return false;
+  }).slice(0, 20); // Limit to 20 players for performance
+  
+  console.log(`Found ${playersInFight.length} players for fight ${fightId}`);
   
   if (playersInFight.length === 0) {
-    updateStatus('No players found for this fight');
+    updateStatus(`No players found for fight ID: ${fightId}`);
+    console.warn(`Could not find any players for fight ID: ${fightId}`);
+    console.log("Data structure received:", JSON.stringify(reportData.friendlies[0], null, 2).substring(0, 500) + "...");
+    
+    // Fallback option 1: Try all players as fallback
+    if (reportData.friendlies && reportData.friendlies.length > 0) {
+      console.log("Falling back to using all players");
+      const allPlayers = reportData.friendlies.slice(0, 20);
+      createControlPanel(allPlayers);
+      return;
+    }
+    
+    // Fallback option 2: Generate mock data if no players at all
+    generateMockPlayers();
     return;
   }
   
@@ -129,11 +400,31 @@ function findPlayersFromReportData() {
     name: player.name,
     id: player.id || `player-${index}`,
     type: player.type,
-    server: player.server,
-    icon: player.icon
+    server: player.server || '',
+    icon: player.icon || ''
   }));
   
   createControlPanel(formattedPlayerData);
+}
+
+// Generate mock player data for testing
+function generateMockPlayers() {
+  const classes = ['Warrior', 'Paladin', 'Hunter', 'Rogue', 'Priest', 'Shaman', 'Mage', 'Warlock', 'Druid', 'Death Knight'];
+  const mockPlayers = [];
+  
+  for (let i = 1; i <= 20; i++) {
+    const classIndex = i % classes.length;
+    mockPlayers.push({
+      name: `Player${i}`,
+      id: `mock-player-${i}`,
+      type: classes[classIndex],
+      server: 'MockRealm',
+      icon: ''
+    });
+  }
+  
+  console.log('Generated mock player data:', mockPlayers);
+  createControlPanel(mockPlayers);
 }
 
 // Update status message
@@ -175,35 +466,6 @@ function createControlPanel(players) {
   // Create a new control panel
   const controlPanel = document.createElement('div');
   controlPanel.id = 'wcl-trail-controls';
-  controlPanel.innerHTML = `
-    <div style="font-weight: bold; margin-bottom: 10px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.3); padding-bottom: 5px;">
-      Movement Trails
-    </div>
-    <div style="margin-bottom: 10px;">
-      <label for="player-select">Player:</label>
-      <select id="player-select" style="width: 100%; padding: 4px; margin-top: 3px;">
-        <option value="">-- Select Player --</option>
-      </select>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <button id="collect-data" style="width: 100%; padding: 5px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;">
-        Collect Movement Data
-      </button>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <label style="display: flex; align-items: center;">
-        <input type="checkbox" id="show-trail" checked style="margin-right: 5px;"> 
-        Show Trail
-      </label>
-    </div>
-    <div style="margin-bottom: 10px;">
-      <label style="display: flex; align-items: center;">
-        <input type="checkbox" id="exclusive-player" checked style="margin-right: 5px;"> 
-        Show Selected Player Only
-      </label>
-    </div>
-    <div id="status-message" style="font-size: 12px; color: #999; margin-top: 10px;"></div>
-  `;
   
   // Style the control panel
   controlPanel.style.position = 'fixed';
@@ -217,6 +479,24 @@ function createControlPanel(players) {
   controlPanel.style.width = '200px';
   controlPanel.style.fontFamily = 'Arial, sans-serif';
   controlPanel.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.5)';
+  
+  controlPanel.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 10px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.3); padding-bottom: 5px;">
+      Movement Trails
+    </div>
+    <div style="margin-bottom: 10px;">
+      <label for="player-select">Player:</label>
+      <select id="player-select" style="width: 100%; padding: 4px; margin-top: 3px;">
+        <option value="">-- Select Player --</option>
+      </select>
+    </div>
+    <div style="margin-bottom: 10px;">
+      <button id="view-player" style="width: 100%; padding: 5px; background-color: #4CAF50; color: white; border: none; border-radius: 3px; cursor: pointer;" disabled>
+        Track Player
+      </button>
+    </div>
+    <div id="status-message" style="font-size: 12px; color: #999; margin-top: 10px;"></div>
+  `;
   
   document.body.appendChild(controlPanel);
   
@@ -254,528 +534,125 @@ function createControlPanel(players) {
   }
   
   // Add event listeners
-  document.getElementById('collect-data').addEventListener('click', startCollection);
-  document.getElementById('show-trail').addEventListener('change', toggleTrail);
-  document.getElementById('exclusive-player').addEventListener('change', function(e) {
-    // When toggling the checkbox, either show only selected player or show all
-    const selectedPlayerId = document.getElementById('player-select').value;
+  document.getElementById('view-player').addEventListener('click', function() {
+    const selectElement = document.getElementById('player-select');
+    const selectedPlayerId = selectElement.value;
+    
     if (selectedPlayerId) {
       const player = playerData[selectedPlayerId];
-      if (e.target.checked) {
-        toggleOffOtherPlayers(player.name);
-      } else {
-        enableAllLegendItems();
-      }
+      selectedPlayerName = player.name;
+      updateStatus(`Tracking ${player.name}...`);
+      
+      // Inject script to set up trail for selected player
+      const script = generateTrailScript(player.name);
+      injectScript(script);
     }
+  });
+  
+  // Add toggle for trail visibility
+  const trailToggle = document.createElement('div');
+  trailToggle.style.marginBottom = '10px';
+  trailToggle.innerHTML = `
+    <label style="display: flex; align-items: center;">
+      <input type="checkbox" id="show-trail" checked style="margin-right: 5px;"> 
+      Show Trail
+    </label>
+  `;
+  controlPanel.insertBefore(trailToggle, document.getElementById('status-message'));
+  
+  document.getElementById('show-trail').addEventListener('change', function(e) {
+    trailEnabled = e.target.checked;
+    updateStatus(`Trail ${trailEnabled ? 'enabled' : 'disabled'}`);
+    
+    // Inject script to update trail visibility
+    const script = `
+      console.log('Setting trail visibility to ${trailEnabled}');
+      window.trailEnabled = ${trailEnabled};
+      
+      if (!${trailEnabled}) {
+        // Clear the trail when disabled
+        if (window.clearPlayerTrail) {
+          window.clearPlayerTrail();
+        }
+      }
+    `;
+    injectScript(script);
   });
 }
 
 // Handle player selection in the dropdown
 function handlePlayerSelection(e) {
-  const selectedPlayerId = e.target.value;
+  const selectElement = e.target;
+  const selectedId = selectElement.value;
+  const viewButton = document.getElementById('view-player');
   
-  // If no player selected, do nothing
-  if (!selectedPlayerId) {
+  // If no player selected, disable the view button
+  if (!selectedId) {
+    viewButton.disabled = true;
+    selectedPlayerName = null;
     return;
   }
   
-  const player = playerData[selectedPlayerId];
-  console.log(`Selected player: ${player.name}`);
+  // Enable the view button
+  viewButton.disabled = false;
   
-  // Check if we should show only this player
-  const exclusiveCheckbox = document.getElementById('exclusive-player');
-  if (exclusiveCheckbox && exclusiveCheckbox.checked) {
-    toggleOffOtherPlayers(player.name);
-  }
+  const player = playerData[selectedId];
+  console.log(`Selected player: ${player.name}`);
   
   // Update status
   updateStatus(`Selected ${player.name}`);
 }
 
-// Function to toggle off all players in the replay legend except the selected one
-function toggleOffOtherPlayers(selectedPlayerName) {
-  console.log(`Toggling off other players except ${selectedPlayerName}`);
+// Set up a mutation observer to monitor for canvas and game UI elements
+function setupCanvasObserver() {
+  console.log('Setting up canvas observer');
   
-  // Find all items in the replay legend
-  const legendItems = document.querySelectorAll('.replay-legend-item.friendly');
-  console.log(`Found ${legendItems.length} legend items`);
-  
-  // Process each legend item
-  legendItems.forEach(item => {
-    // Get the player name from the legend item
-    const nameElement = item.querySelector('.replay-legend-name');
-    if (!nameElement) return;
-    
-    const playerName = nameElement.textContent.trim();
-    console.log(`Processing legend item: ${playerName}`);
-    
-    // If this is not the selected player, toggle it off
-    if (playerName !== selectedPlayerName) {
-      // Check if the item is currently visible (no strikethrough style)
-      const isVisible = !nameElement.style.textDecoration || !nameElement.style.textDecoration.includes('line-through');
-      
-      if (isVisible) {
-        console.log(`Toggling off: ${playerName}`);
-        // Click the item to toggle it off
-        item.click();
-      }
-    } else {
-      // This is our selected player, make sure it's visible
-      const isVisible = !nameElement.style.textDecoration || !nameElement.style.textDecoration.includes('line-through');
-      
-      if (!isVisible) {
-        console.log(`Toggling on selected player: ${playerName}`);
-        // Click the item to toggle it on
-        item.click();
-      }
-    }
-  });
-}
-
-// Function to re-enable all legend items that were disabled
-function enableAllLegendItems() {
-  console.log('Re-enabling all legend items');
-  
-  // Find all items in the replay legend
-  const legendItems = document.querySelectorAll('.replay-legend-item.friendly');
-  
-  // Process each legend item
-  legendItems.forEach(item => {
-    // Get the player name from the legend item
-    const nameElement = item.querySelector('.replay-legend-name');
-    if (!nameElement) return;
-    
-    // Check if the item is currently hidden (has strikethrough style)
-    const isHidden = nameElement.style.textDecoration && nameElement.style.textDecoration.includes('line-through');
-    
-    if (isHidden) {
-      console.log(`Re-enabling: ${nameElement.textContent.trim()}`);
-      // Click the item to toggle it on
-      item.click();
-    }
-  });
-}
-
-// Toggle trail visibility
-function toggleTrail(e) {
-  const visible = e.target.checked;
-  const trailOverlay = document.getElementById('wcl-trail-svg');
-  if (trailOverlay) {
-    trailOverlay.style.display = visible ? 'block' : 'none';
-  }
-  updateStatus(`Trail visibility: ${visible ? 'On' : 'Off'}`);
-}
-
-// Start collecting movement data
-function startCollection() {
-  // If already collecting, stop
-  if (isCollecting) {
-    isCollecting = false;
-    if (trackingInterval) {
-      clearInterval(trackingInterval);
-      trackingInterval = null;
-    }
-    
-    const button = document.getElementById('collect-data');
-    button.textContent = 'Collect Movement Data';
-    button.style.backgroundColor = '#4CAF50';
-    updateStatus('Data collection stopped');
-    return;
-  }
-  
-  // Get the selected player
-  const playerSelect = document.getElementById('player-select');
-  const selectedIndex = playerSelect.value;
-  
-  if (!selectedIndex) {
-    updateStatus('Please select a player');
-    return;
-  }
-  
-  const player = playerData[selectedIndex];
-  selectedPlayerId = selectedIndex;
-  isCollecting = true;
-  
-  // Update button
-  const button = document.getElementById('collect-data');
-  button.textContent = 'Stop Collection';
-  button.style.backgroundColor = '#f44336';
-  
-  updateStatus(`Starting to track ${player.name}...`);
-  
-  // Clear previous position data
-  positionData[selectedPlayerId] = [];
-  
-  // Set up the trail overlay
-  setupTrailOverlay();
-  
-  // Start tracking player position
-  startPlayerTracking(player);
-}
-
-// Set up the trail overlay
-function setupTrailOverlay() {
-  // Remove existing overlay
-  const existingOverlay = document.getElementById('wcl-trail-container');
-  if (existingOverlay) {
-    existingOverlay.remove();
-  }
-  
-  // Find the replay canvas element - this is the main area where the replay is shown
-  const replayCanvas = document.getElementById('replay-canvas') || 
-                      document.querySelector('canvas[id*="replay"]') ||
-                      document.querySelector('.replay-canvas');
-  
-  // If we can't find the canvas directly, look for the container
-  let replayContainer = replayCanvas ? replayCanvas.parentElement : null;
-  
-  if (!replayContainer) {
-    // Look for replay container by common class names
-    replayContainer = document.querySelector('.replay-container') || 
-                      document.querySelector('.map-container') ||
-                      document.querySelector('[class*="replay"]') ||
-                      document.querySelector('#replay');
-  }
-  
-  // If still not found, look for a large positioned div that might be the container
-  if (!replayContainer) {
-    const possibleContainers = Array.from(document.querySelectorAll('div[style*="position"]'))
-      .filter(div => {
-        const rect = div.getBoundingClientRect();
-        return rect.width > 300 && rect.height > 300;
-      });
-    
-    // Sort by area (largest first)
-    possibleContainers.sort((a, b) => {
-      const aRect = a.getBoundingClientRect();
-      const bRect = b.getBoundingClientRect();
-      return (bRect.width * bRect.height) - (aRect.width * aRect.height);
-    });
-    
-    if (possibleContainers.length > 0) {
-      replayContainer = possibleContainers[0];
-    }
-  }
-  
-  if (!replayContainer) {
-    console.error('Could not find replay container');
-    updateStatus('Error: Could not find replay view');
-    return;
-  }
-  
-  console.log('Found replay container:', replayContainer);
-  
-  // Create overlay container
-  const overlayContainer = document.createElement('div');
-  overlayContainer.id = 'wcl-trail-container';
-  overlayContainer.style.position = 'absolute';
-  overlayContainer.style.top = '0';
-  overlayContainer.style.left = '0';
-  overlayContainer.style.width = '100%';
-  overlayContainer.style.height = '100%';
-  overlayContainer.style.pointerEvents = 'none';
-  overlayContainer.style.zIndex = '50';
-  
-  // Create SVG element
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.id = 'wcl-trail-svg';
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '100%');
-  
-  // Add the SVG to the container
-  overlayContainer.appendChild(svg);
-  
-  // Add the container to the replay container
-  if (replayContainer.style.position !== 'absolute' && replayContainer.style.position !== 'relative') {
-    replayContainer.style.position = 'relative';
-  }
-  replayContainer.appendChild(overlayContainer);
-  
-  console.log('Trail overlay created');
-}
-
-// Start tracking player position
-function startPlayerTracking(player) {
-  console.log(`Starting tracking for player: ${player.name}`);
-  
-  // Initialize position data
-  positionData[selectedPlayerId] = [];
-  
-  // Function to find entities that might be the player
-  function findPlayerEntities() {
-    // Look for any element that has the player name
-    const nameElements = Array.from(document.querySelectorAll('*')).filter(el => 
-      el.textContent.trim() === player.name
-    );
-    
-    // Look for elements with transform style (they move)
-    const movingElements = document.querySelectorAll('[style*="transform"]');
-    
-    return {
-      nameElements,
-      movingElements
-    };
-  }
-  
-  // Set up a timer to periodically check for player position
-  trackingInterval = setInterval(() => {
-    if (!isCollecting || selectedPlayerId !== player.id) {
-      clearInterval(trackingInterval);
-      trackingInterval = null;
-      return;
-    }
-    
-    // Find player entities
-    const { nameElements, movingElements } = findPlayerEntities();
-    
-    // Try to find position based on name elements first
-    let foundPosition = null;
-    
-    for (const el of nameElements) {
-      // Check if this element or any parent has a transform
-      let current = el;
-      for (let i = 0; i < 5 && current; i++) {
-        const style = current.getAttribute('style') || '';
-        const position = extractPositionFromTransform(style);
-        if (position) {
-          foundPosition = position;
-          break;
-        }
-        current = current.parentElement;
-      }
-      
-      if (foundPosition) break;
-    }
-    
-    // If no position found from name elements, try all moving elements
-    // This is less accurate but may work
-    if (!foundPosition && movingElements.length > 0) {
-      // Just use the first moving element as a fallback
-      const style = movingElements[0].getAttribute('style') || '';
-      foundPosition = extractPositionFromTransform(style);
-    }
-    
-    if (foundPosition) {
-      // Get current time
-      const time = getCurrentReplayTime();
-      
-      // Add to position data
-      positionData[selectedPlayerId].push({
-        x: foundPosition.x,
-        y: foundPosition.y,
-        time: time
-      });
-      
-      // Update the trail
-      updateTrail(selectedPlayerId);
-    }
-  }, 100); // Check every 100ms
-}
-
-// Extract position from transform style
-function extractPositionFromTransform(style) {
-  if (!style) return null;
-  
-  const transformMatch = style.match(/transform\s*:\s*translate\(\s*([^,]+),\s*([^)]+)\)/i);
-  
-  if (transformMatch && transformMatch.length >= 3) {
-    const x = parseFloat(transformMatch[1]);
-    const y = parseFloat(transformMatch[2]);
-    return { x, y };
-  }
-  
-  return null;
-}
-
-// Get current replay time
-function getCurrentReplayTime() {
-  const timeElement = document.querySelector('.timeline-time');
-  if (!timeElement) return 0;
-  
-  const timeText = timeElement.textContent.trim();
-  const parts = timeText.split(':');
-  
-  if (parts.length === 2) {
-    const minutes = parseInt(parts[0], 10);
-    const seconds = parseFloat(parts[1]);
-    return minutes * 60 + seconds;
-  }
-  
-  return 0;
-}
-
-// Update the trail visualization
-function updateTrail(playerId) {
-  const positions = positionData[playerId];
-  if (!positions || positions.length < 2) return;
-  
-  const svg = document.getElementById('wcl-trail-svg');
-  if (!svg) return;
-  
-  // Clear existing path
-  svg.innerHTML = '';
-  
-  // Create path element
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  
-  // Generate path data
-  let pathData = `M ${positions[0].x} ${positions[0].y}`;
-  for (let i = 1; i < positions.length; i++) {
-    pathData += ` L ${positions[i].x} ${positions[i].y}`;
-  }
-  
-  // Set path attributes
-  path.setAttribute('d', pathData);
-  path.setAttribute('stroke', 'rgba(255, 0, 0, 0.7)');
-  path.setAttribute('stroke-width', '2');
-  path.setAttribute('fill', 'none');
-  
-  // Add path to SVG
-  svg.appendChild(path);
-  
-  // Add time markers
-  const interval = Math.max(1, Math.floor(positions.length / 10));
-  for (let i = 0; i < positions.length; i += interval) {
-    const pos = positions[i];
-    
-    // Create marker circle
-    const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    marker.setAttribute('cx', pos.x);
-    marker.setAttribute('cy', pos.y);
-    marker.setAttribute('r', '4');
-    marker.setAttribute('fill', 'rgba(255, 255, 0, 0.7)');
-    
-    // Create larger invisible circle for hover detection
-    const hoverArea = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    hoverArea.setAttribute('cx', pos.x);
-    hoverArea.setAttribute('cy', pos.y);
-    hoverArea.setAttribute('r', '10');
-    hoverArea.setAttribute('fill', 'transparent');
-    hoverArea.setAttribute('data-time', formatTime(pos.time));
-    hoverArea.style.pointerEvents = 'all';
-    
-    // Add tooltip on hover
-    hoverArea.addEventListener('mouseover', showTooltip);
-    hoverArea.addEventListener('mouseout', hideTooltip);
-    
-    svg.appendChild(marker);
-    svg.appendChild(hoverArea);
-  }
-}
-
-// Show tooltip with time information
-function showTooltip(e) {
-  const time = e.target.getAttribute('data-time');
-  
-  let tooltip = document.getElementById('wcl-trail-tooltip');
-  if (!tooltip) {
-    tooltip = document.createElement('div');
-    tooltip.id = 'wcl-trail-tooltip';
-    tooltip.style.position = 'absolute';
-    tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-    tooltip.style.color = 'white';
-    tooltip.style.padding = '5px';
-    tooltip.style.borderRadius = '3px';
-    tooltip.style.zIndex = '9999';
-    tooltip.style.pointerEvents = 'none';
-    tooltip.style.fontSize = '12px';
-    document.body.appendChild(tooltip);
-  }
-  
-  tooltip.textContent = `Time: ${time}`;
-  tooltip.style.left = `${e.clientX + 10}px`;
-  tooltip.style.top = `${e.clientY + 10}px`;
-  tooltip.style.display = 'block';
-}
-
-// Hide the tooltip
-function hideTooltip() {
-  const tooltip = document.getElementById('wcl-trail-tooltip');
-  if (tooltip) {
-    tooltip.style.display = 'none';
-  }
-}
-
-// Format time (MM:SS)
-function formatTime(seconds) {
-  const minutes = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${minutes}:${secs.toString().padStart(2, '0')}`;
-}
-
-// Create a function to intercept network requests
-// This helps us capture the report data from network requests
-function setupNetworkListener() {
-  // Create an XHR proxy to intercept all AJAX requests
-  const originalXhrOpen = XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open = function(method, url) {
-    // Check if this is a request for report data
-    if (typeof url === 'string') {
-      if (url.includes('/reports/') && 
-         (url.includes('/fights') || url.includes('/summary-graph/') || url.includes('/tables/'))) {
-        
-        console.log(`Monitoring XHR request to: ${url}`);
-        
-        this.addEventListener('load', function() {
-          try {
-            const data = JSON.parse(this.responseText);
-            
-            // Check if this response has the data we need
-            if (data && data.fights && data.friendlies) {
-              console.log('Found report data in XHR response!');
-              reportData = data;
-              
-              // If we're already initialized, update with this data
-              if (document.getElementById('wcl-trail-controls')) {
-                findPlayersFromReportData();
-              }
+  // Create mutation observer to detect when the canvas is added to the DOM
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'childList') {
+        // Check for canvas elements
+        const canvasElements = document.querySelectorAll('canvas');
+        if (canvasElements.length > 0) {
+          console.log(`Canvas elements found (${canvasElements.length})`);
+          
+          // Inject a script to check for the draw function
+          const checkScript = `
+            if (typeof window.drawActorAndInstance === 'function') {
+              console.log('drawActorAndInstance function available in page context');
+              window.postMessage({
+                type: 'wcl-trail-status',
+                message: 'Drawing function found',
+                functionName: 'drawActorAndInstance',
+                available: true
+              }, '*');
+            } else {
+              console.log('drawActorAndInstance function NOT available in page context');
+              window.postMessage({
+                type: 'wcl-trail-status',
+                message: 'Drawing function not found',
+                available: false
+              }, '*');
             }
-          } catch (e) {
-            console.error('Error parsing intercepted response:', e);
-          }
-        });
-      }
-    }
-    return originalXhrOpen.apply(this, arguments);
-  };
-  
-  // Also try to find the data in any known global variables
-  window.addEventListener('load', function() {
-    // Check common variable names that might contain report data
-    const globalVars = ['_reportData', 'reportData', 'wclData', 'pageData'];
-    
-    for (const varName of globalVars) {
-      if (window[varName] && window[varName].fights && window[varName].friendlies) {
-        console.log(`Found report data in global variable: ${varName}`);
-        reportData = window[varName];
-        break;
-      }
-    }
-    
-    // Look for any variable that might contain our data
-    // This is more aggressive but might find hidden data
-    for (const key in window) {
-      try {
-        const value = window[key];
-        if (value && typeof value === 'object' && value.fights && value.friendlies) {
-          console.log(`Found potential report data in global variable: ${key}`);
-          reportData = value;
+          `;
+          injectScript(checkScript);
+          
+          observer.disconnect();
           break;
         }
-      } catch (e) {
-        // Ignore errors from accessing certain properties
       }
     }
   });
+  
+  // Start observing the document for added nodes
+  observer.observe(document.body, { childList: true, subtree: true });
 }
-
-// Set up the network listener
-setupNetworkListener();
 
 // Initialize if we're on a replay page
 if (isReplayPage()) {
   console.log('On replay page, initializing...');
   setTimeout(initialize, 1000);
+  setupCanvasObserver();
 }
 
 // Listen for URL changes
@@ -787,6 +664,7 @@ new MutationObserver(() => {
     if (isReplayPage()) {
       console.log('Navigated to replay page');
       setTimeout(initialize, 1000);
+      setupCanvasObserver();
     }
   }
 }).observe(document, {subtree: true, childList: true});

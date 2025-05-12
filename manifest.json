@@ -3,7 +3,7 @@
   "name": "Warcraft Logs Movement Trails",
   "version": "0.1",
   "description": "Visualize player movement trails in Warcraft Logs replays",
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab", "storage", "clipboardWrite"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
