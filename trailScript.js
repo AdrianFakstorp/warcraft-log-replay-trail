@@ -9,6 +9,9 @@ function setupPlayerTrail(playerName) {
   // Store stationary points separately - places where player stood still
   const stationaryPoints = [];
   
+  // Set initial visibility state
+  window.trailVisible = true;
+  
   // Config parameters for the trail visualization
   const config = {
     // Line appearance
@@ -87,8 +90,8 @@ function setupPlayerTrail(playerName) {
           console.log(`Updated ${playerName} trail, now has ${positionHistory.length} points, ${stationaryPoints.length} stationary points`);
         }
         
-        // Only draw the trail if visibility is not explicitly set to false
-        if (window.trailVisible !== false && window.hideTrail !== true) {
+        // Only draw the trail if visibility is explicitly set to true
+        if (window.trailVisible === true) {
           // Get canvas context (e is already the context)
           const ctx = e;
           
@@ -134,6 +137,31 @@ function setupPlayerTrail(playerName) {
             ctx.fillStyle = `rgba(${trailColor}, ${config.positionMarkerOpacity})`;
             ctx.fill();
           });
+          
+          // Draw the path with only the start label
+          if (positionHistory.length > 1) {
+            // Draw "Start" label at the first position
+            const startPos = positionHistory[0];
+            ctx.font = 'bold 12px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Draw white outline for better visibility
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.strokeText('Start', startPos.x, startPos.y - 15);
+            ctx.fillText('Start', startPos.x, startPos.y - 15);
+            
+            // Draw an arrow or marker pointing to the exact start point
+            ctx.beginPath();
+            ctx.moveTo(startPos.x, startPos.y - 10);
+            ctx.lineTo(startPos.x - 5, startPos.y - 5);
+            ctx.lineTo(startPos.x + 5, startPos.y - 5);
+            ctx.closePath();
+            ctx.fillStyle = 'white';
+            ctx.fill();
+          }
           
           // Draw larger circles for stationary points (much more noticeable)
           stationaryPoints.forEach((point) => {
@@ -257,8 +285,8 @@ function setupPlayerTrail(playerName) {
           console.log(`Updated ${playerName} trail, now has ${positionHistory.length} points, ${stationaryPoints.length} stationary points`);
         }
         
-        // Only draw the trail if visibility is not explicitly set to false
-        if (window.trailVisible !== false && window.hideTrail !== true) {
+        // Only draw the trail if visibility is explicitly set to true
+        if (window.trailVisible === true) {
           // Get canvas context (e is already the context)
           const ctx = e;
           
@@ -304,6 +332,31 @@ function setupPlayerTrail(playerName) {
             ctx.fillStyle = `rgba(${trailColor}, ${config.positionMarkerOpacity})`;
             ctx.fill();
           });
+          
+          // Draw the path with only the start label
+          if (positionHistory.length > 1) {
+            // Draw "Start" label at the first position
+            const startPos = positionHistory[0];
+            ctx.font = 'bold 12px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Draw white outline for better visibility
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.strokeText('Start', startPos.x, startPos.y - 15);
+            ctx.fillText('Start', startPos.x, startPos.y - 15);
+            
+            // Draw an arrow or marker pointing to the exact start point
+            ctx.beginPath();
+            ctx.moveTo(startPos.x, startPos.y - 10);
+            ctx.lineTo(startPos.x - 5, startPos.y - 5);
+            ctx.lineTo(startPos.x + 5, startPos.y - 5);
+            ctx.closePath();
+            ctx.fillStyle = 'white';
+            ctx.fill();
+          }
           
           // Draw larger circles for stationary points (much more noticeable)
           stationaryPoints.forEach((point) => {
@@ -367,6 +420,8 @@ window.addEventListener('message', function(event) {
   // Only accept messages from the same frame
   if (event.source !== window) return;
 
+  console.log('Message received in trailScript:', event.data);
+
   if (event.data.type === 'wcl-trail-setup') {
     console.log('Received setup request from content script:', event.data);
     setupPlayerTrail(event.data.playerName);
@@ -377,30 +432,29 @@ window.addEventListener('message', function(event) {
     window.currentReplayTimestamp = event.data.timestamp;
   }
   
-  // Handle clear trail request
+  // Handle clear trail request - FIXED
   if (event.data.type === 'wcl-trail-clear') {
     console.log('Received clear trail request');
-    if (window.clearPlayerTrail) {
+    if (typeof window.clearPlayerTrail === 'function') {
       window.clearPlayerTrail();
       window.postMessage({
         type: 'wcl-trail-status',
         message: 'Trail cleared'
       }, '*');
+    } else {
+      console.error('clearPlayerTrail function not found');
     }
   }
   
-  // Handle visibility toggle
+  // Handle visibility toggle - FIXED
   if (event.data.type === 'wcl-trail-visibility') {
     console.log(`Trail visibility set to: ${event.data.visible}`);
     window.trailVisible = event.data.visible;
     
-    // If turning off visibility, we can temporarily clear the history
-    // but store it so we can restore it when turned back on
-    if (!event.data.visible && window.clearPlayerTrail) {
-      // Instead of actually clearing, we could temporarily hide
-      window.hideTrail = true;
+    if (!window.trailVisible) {
+      console.log('Trail hidden');
     } else {
-      window.hideTrail = false;
+      console.log('Trail shown');
     }
   }
 });

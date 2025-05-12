@@ -85,8 +85,9 @@ function loadExternalScript() {
   console.log('Injected trail script from extension resources');
 }
 
-// Send a message to the injected script
+// Add debug logging to the sendMessageToPage function:
 function sendMessageToPage(message) {
+  console.log('Sending message to page:', message);
   window.postMessage(message, '*');
 }
 
@@ -362,37 +363,41 @@ function createControlPanel(players) {
   }
   
   // Add event listeners
+  // And when a player is tracked, enable the clear button:
   document.getElementById('view-player').addEventListener('click', function() {
-    const selectElement = document.getElementById('player-select');
-    const selectedPlayerId = selectElement.value;
+  const selectElement = document.getElementById('player-select');
+  const selectedPlayerId = selectElement.value;
+  
+  if (selectedPlayerId) {
+    const player = playerData[selectedPlayerId];
+    selectedPlayerName = player.name;
+    updateStatus(`Tracking ${player.name}...`);
     
-    if (selectedPlayerId) {
-      const player = playerData[selectedPlayerId];
-      selectedPlayerName = player.name;
-      updateStatus(`Tracking ${player.name}...`);
-      
-      // Send message to the injected script
-      sendMessageToPage({
-        type: 'wcl-trail-setup',
-        playerName: player.name
-      });
-      
-      // Enable the clear button
-      document.getElementById('clear-trail').disabled = false;
-    }
+    // Send message to the injected script
+    sendMessageToPage({
+      type: 'wcl-trail-setup',
+      playerName: player.name
+    });
+    
+    // Enable the clear button
+    document.getElementById('clear-trail').disabled = false;
+  }
   });
   
-  // Add event listener for the clear trail button
-  document.getElementById('clear-trail').addEventListener('click', function() {
-    if (selectedPlayerName) {
-      // Send message to clear the trail
-      sendMessageToPage({
-        type: 'wcl-trail-clear'
-      });
-      
-      updateStatus(`Cleared trail for ${selectedPlayerName}`);
-    }
-  });
+// Update the clear trail button handler:
+document.getElementById('clear-trail').addEventListener('click', function() {
+  if (selectedPlayerName) {
+    console.log('Sending clear trail request');
+    // Send message to clear the trail
+    sendMessageToPage({
+      type: 'wcl-trail-clear'
+    });
+    
+    updateStatus(`Cleared trail for ${selectedPlayerName}`);
+  } else {
+    console.log('No player selected for clearing trail');
+  }
+});
   
   // Add toggle for trail visibility
   const trailToggle = document.createElement('div');
@@ -405,27 +410,32 @@ function createControlPanel(players) {
   `;
   controlPanel.insertBefore(trailToggle, document.getElementById('status-message').previousElementSibling);
   
+  // Update the show/hide trail toggle handler:
   document.getElementById('show-trail').addEventListener('change', function(e) {
-    trailEnabled = e.target.checked;
-    updateStatus(`Trail ${trailEnabled ? 'enabled' : 'disabled'}`);
-    
-    // Send message to the injected script
-    sendMessageToPage({
-      type: 'wcl-trail-visibility',
-      visible: trailEnabled
-    });
+  trailEnabled = e.target.checked;
+  console.log(`Toggling trail visibility to: ${trailEnabled}`);
+  
+  // Send message to the injected script
+  sendMessageToPage({
+    type: 'wcl-trail-visibility',
+    visible: trailEnabled
+  });
+  
+  updateStatus(`Trail ${trailEnabled ? 'shown' : 'hidden'}`);
   });
 }
 
-// Handle player selection in the dropdown
+// Update the handlePlayerSelection function to enable/disable the clear button properly:
 function handlePlayerSelection(e) {
   const selectElement = e.target;
   const selectedId = selectElement.value;
   const viewButton = document.getElementById('view-player');
+  const clearButton = document.getElementById('clear-trail');
   
-  // If no player selected, disable the view button
+  // If no player selected, disable the buttons
   if (!selectedId) {
     viewButton.disabled = true;
+    clearButton.disabled = true;
     selectedPlayerName = null;
     return;
   }
